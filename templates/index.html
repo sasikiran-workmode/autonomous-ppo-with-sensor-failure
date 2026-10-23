@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="PPO Autonomous Driving — Comparison of baseline vs sensor-robust agents on highway-v0." />
+  <title>PPO Autonomous Driving — Sensor Failure Study</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container">
+      <div class="header-inner">
+        <div class="header-title">
+          <h1>PPO Autonomous Driving</h1>
+          <p class="header-sub">Sensor Failure Robustness Study — highway-v0 / Stable-Baselines3</p>
+        </div>
+        <div class="header-status" id="header-status">
+          <div class="status-pill" id="pill-a">Agent A</div>
+          <div class="status-pill" id="pill-b">Agent B</div>
+          <div class="status-pill" id="pill-oc">OpenCode</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Intro -->
+    <section class="intro-section">
+      <div class="intro-card panel">
+        <div class="intro-grid">
+          <div class="intro-agent">
+            <div class="agent-chip chip-a">Agent A</div>
+            <strong>Baseline PPO</strong>
+            <p>Trained on complete sensor observations. No masking applied during training.</p>
+          </div>
+          <div class="intro-vs">VS</div>
+          <div class="intro-agent">
+            <div class="agent-chip chip-b">Agent B</div>
+            <strong>Sensor-Robust PPO</strong>
+            <p>Trained with 10% per-step sensor dropout. One nearby vehicle's data is randomly hidden each step.</p>
+          </div>
+        </div>
+        <p class="intro-question">Research question: Does training with simulated sensor failures produce a more robust driving policy?</p>
+      </div>
+    </section>
+
+    <!-- Live Simulation -->
+    <section class="section" id="section-demo">
+      <h2 class="section-title">Live Simulation</h2>
+      <p class="section-desc">Watch both agents drive side by side. Select a failure rate to apply sensor masking during the demo.</p>
+
+      <div class="controls-row panel">
+        <div class="control-field">
+          <label class="field-label" for="failure-rate-select">Failure Rate</label>
+          <select id="failure-rate-select" class="field-select">
+            <option value="0">0% — No failures</option>
+            <option value="0.05">5% — Low</option>
+            <option value="0.10" selected>10% — Medium</option>
+            <option value="0.20">20% — High</option>
+          </select>
+        </div>
+        <div class="control-field">
+          <label class="field-label" for="demo-seed">Seed</label>
+          <input type="number" id="demo-seed" class="field-input" value="42" min="0" max="9999" />
+        </div>
+        <div class="control-actions">
+          <button id="btn-demo-start" class="btn btn-primary" onclick="startDemo()">Start</button>
+          <button id="btn-demo-stop" class="btn btn-secondary" onclick="stopDemo()" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div id="demo-error" class="alert alert-error hidden"></div>
+
+      <div class="sim-grid">
+        <!-- Agent A -->
+        <div class="sim-panel panel" id="panel-a">
+          <div class="sim-header">
+            <div class="agent-chip chip-a">Agent A — Baseline</div>
+            <div class="sim-badge" id="badge-a">Idle</div>
+          </div>
+          <div class="sim-viewport" id="viewport-a">
+            <div class="sim-idle" id="idle-a">
+              <p>Start the simulation to view Agent A</p>
+            </div>
+            <img id="frame-a" class="sim-frame hidden" alt="Agent A live frame" />
+          </div>
+          <div class="sim-stats">
+            <div class="stat"><div class="stat-label">Speed</div><div class="stat-val" id="stat-speed-a">—</div></div>
+            <div class="stat"><div class="stat-label">Reward</div><div class="stat-val" id="stat-reward-a">—</div></div>
+            <div class="stat"><div class="stat-label">Episode</div><div class="stat-val" id="stat-ep-a">—</div></div>
+            <div class="stat stat-collision"><div class="stat-label">Collision</div><div class="stat-val" id="stat-col-a">—</div></div>
+          </div>
+        </div>
+
+        <!-- Agent B -->
+        <div class="sim-panel panel" id="panel-b">
+          <div class="sim-header">
+            <div class="agent-chip chip-b">Agent B — Sensor-Robust</div>
+            <div class="sim-badge" id="badge-b">Idle</div>
+          </div>
+          <div class="sim-viewport" id="viewport-b">
+            <div class="sim-idle" id="idle-b">
+              <p>Start the simulation to view Agent B</p>
+            </div>
+            <img id="frame-b" class="sim-frame hidden" alt="Agent B live frame" />
+          </div>
+          <div class="sim-stats">
+            <div class="stat"><div class="stat-label">Speed</div><div class="stat-val" id="stat-speed-b">—</div></div>
+            <div class="stat"><div class="stat-label">Reward</div><div class="stat-val" id="stat-reward-b">—</div></div>
+            <div class="stat"><div class="stat-label">Episode</div><div class="stat-val" id="stat-ep-b">—</div></div>
+            <div class="stat stat-collision"><div class="stat-label">Collision</div><div class="stat-val" id="stat-col-b">—</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Evaluation -->
+    <section class="section" id="section-eval">
+      <h2 class="section-title">Run Full Evaluation</h2>
+      <p class="section-desc">Run all 8 conditions (2 agents x 4 failure rates, 30 episodes each) and generate comparison charts.</p>
+
+      <div class="panel eval-panel">
+        <div class="eval-row">
+          <div class="control-field">
+            <label class="field-label" for="eval-episodes">Episodes per condition</label>
+            <input type="number" id="eval-episodes" class="field-input" value="30" min="5" max="200" style="width:100px;" />
+          </div>
+          <div class="eval-rates">
+            <span class="field-label">Failure rates tested:</span>
+            <span class="rates-display">0% &nbsp; 5% &nbsp; 10% &nbsp; 20%</span>
+          </div>
+          <button id="btn-evaluate" class="btn btn-primary" onclick="runEvaluation()">Run Evaluation</button>
+        </div>
+
+        <div id="eval-progress" class="progress-wrap hidden">
+          <div class="progress-info">
+            <span id="progress-label">Starting...</span>
+            <span id="progress-pct" class="progress-pct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-bar"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="eval-error" class="alert alert-error hidden"></div>
+    </section>
+
+    <!-- Results -->
+    <section class="section" id="section-results">
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">Results</h2>
+          <p class="section-desc">Aggregate metrics from the evaluation run across all 8 conditions (2 agents x 4 failure rates, 30 episodes each).</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadResults()">Refresh</button>
+      </div>
+
+      <div id="no-results" class="empty-state panel">
+        <p>No evaluation results found. Run the evaluation above to generate data.</p>
+      </div>
+
+      <div id="results-content" class="hidden">
+        <!-- Summary callouts -->
+        <div class="callout-row" id="callout-row"></div>
+
+        <!-- Metrics table -->
+        <div class="panel table-panel">
+          <h3 class="panel-title">Detailed Metrics by Condition</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="metrics-table">
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Failure Rate</th>
+                  <th>Collision Rate</th>
+                  <th>Collision-Free</th>
+                  <th>Avg Reward</th>
+                  <th>Avg Speed (m/s)</th>
+                  <th>Avg Steps</th>
+                  <th>Episodes</th>
+                </tr>
+              </thead>
+              <tbody id="metrics-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Graphs -->
+        <h3 class="subsection-title">Comparison Charts</h3>
+        <p class="subsection-note">Agent B wins on collision rate at all 4 failure rates (0%–3.3% vs A's 6.7%–16.7%), and survives longer every episode. Agent A drives faster. All results are real measured evaluation data from the retrained curriculum model.</p>
+        <div class="graphs-grid" id="graphs-grid"></div>
+      </div>
+    </section>
+
+    <!-- AI Explanation -->
+    <section class="section" id="section-explain">
+      <h2 class="section-title">AI Result Interpretation</h2>
+      <p class="section-desc">OpenCode (mimo-v2.6-flash-free) reads the evaluation summary and provides a plain-English analysis of the results.</p>
+
+      <div class="panel explain-panel">
+        <p>OpenCode will explain which agent performed better under each condition and what the evidence suggests about the sensor-failure training hypothesis.</p>
+        <p class="note-text">Note: Requires OpenCode to be installed with a provider configured. Results are based only on measured data — no fabrication.</p>
+        <button id="btn-explain" class="btn btn-primary" onclick="runExplanation()">Explain Results</button>
+      </div>
+
+      <div id="explain-loading" class="loading-row hidden">
+        <div class="spinner"></div>
+        <span>OpenCode is analysing results...</span>
+      </div>
+
+      <div id="explain-output" class="panel explain-output hidden">
+        <div class="explain-header">
+          <strong>OpenCode Analysis</strong>
+          <span class="model-tag">mimo-v2.6-flash-free</span>
+        </div>
+        <div class="explain-text" id="explain-text"></div>
+      </div>
+
+      <div id="explain-error" class="alert alert-error hidden"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>PPO Autonomous Driving Study &mdash; highway-v0 / Stable-Baselines3 / Gymnasium / Flask</p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

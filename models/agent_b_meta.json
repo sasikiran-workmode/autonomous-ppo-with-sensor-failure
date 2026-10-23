@@ -1,0 +1,95 @@
+{
+  "agent": "B",
+  "timesteps": 200000,
+  "seed": 42,
+  "dropout_prob": 0.1,
+  "env_config": {
+    "observation": {
+      "type": "Kinematics",
+      "features": [
+        "presence",
+        "x",
+        "y",
+        "vx",
+        "vy"
+      ],
+      "vehicles_count": 5,
+      "features_range": {
+        "x": [
+          -100,
+          100
+        ],
+        "y": [
+          -100,
+          100
+        ],
+        "vx": [
+          -20,
+          20
+        ],
+        "vy": [
+          -20,
+          20
+        ]
+      },
+      "absolute": false,
+      "order": "sorted",
+      "normalize": true
+    },
+    "action": {
+      "type": "DiscreteMetaAction"
+    },
+    "lanes_count": 4,
+    "vehicles_count": 50,
+    "controlled_vehicles": 1,
+    "initial_lane_id": null,
+    "duration": 40,
+    "ego_spacing": 2,
+    "vehicles_density": 1,
+    "collision_reward": -5,
+    "right_lane_reward": 0.1,
+    "high_speed_reward": 0.2,
+    "lane_change_reward": -0.05,
+    "reward_speed_range": [
+      20,
+      30
+    ],
+    "normalize_reward": true,
+    "offroad_terminal": false,
+    "simulation_frequency": 5,
+    "policy_frequency": 1,
+    "screen_width": 600,
+    "screen_height": 150
+  },
+  "ppo_config": {
+    "learning_rate": 0.0005,
+    "n_steps": 512,
+    "batch_size": 64,
+    "n_epochs": 10,
+    "gamma": 0.95,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "verbose": 1
+  },
+  "trained_at": "2026-10-23T10:03:20",
+  "training_type": "curriculum",
+  "curriculum_schedule": [
+    [
+      0.25,
+      0.0
+    ],
+    [
+      0.5,
+      0.05
+    ],
+    [
+      0.75,
+      0.1
+    ],
+    [
+      1.0,
+      0.15
+    ]
+  ]
+}
