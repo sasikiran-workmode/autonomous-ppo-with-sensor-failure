@@ -203,6 +203,8 @@ async function pollEval() {
       q('btn-evaluate').disabled = false;
       setProgress(d.total, d.total, 'Evaluation complete');
       setTimeout(() => hide('eval-progress'), 3000);
+      // Switch to the freshly generated experiment run; baseline is untouched.
+      resultsView = 'experiment';
       loadResults();
       checkStatus();
     }
@@ -217,6 +219,21 @@ function setProgress(cur, tot, msg) {
 }
 
 // ── Results ────────────────────────────────────────────────
+// Two result sources: the frozen canonical baseline (post-training 30-episode
+// run) and user experiment runs saved under results/experiments/. Switching
+// views never mutates the baseline.
+let resultsView = 'baseline';
+
+function sourceEndpoints() {
+  if (resultsView === 'baseline') {
+    return {
+      summaryPath: '/api/results',
+      graphPrefix: '/api/results/graphs/',
+    };
+  }
+  return { summaryPath: '/api/experiments/latest', graphPrefix: null };
+}
+
 async function loadResultsIfAvailable() {
   try {
     const r = await api('/api/status');
@@ -226,19 +243,82 @@ async function loadResultsIfAvailable() {
 
 async function loadResults() {
   try {
-    const r = await api('/api/results');
+    const { summaryPath } = sourceEndpoints();
+    const r = await api(summaryPath);
     if (!r.success) {
+      if (resultsView === 'experiment') {
+        // No experiment runs yet — fall back to showing the baseline.
+        updateSourceBanner();
+        return loadBaselineResults();
+      }
       show('no-results');
       hide('results-content');
       return;
     }
+
+    let summary = r.data.results;
+    let graphFiles, graphPrefix;
+    if (resultsView === 'experiment') {
+      const d = r.data;
+      summary    = d.summary.results;
+      graphFiles = d.graphs;
+      graphPrefix = `/api/experiments/${d.id}/graphs/`;
+      updateSourceBanner(d.id, d.summary.experiment_config);
+    } else {
+      graphFiles = (await api('/api/results/graphs')).data || [];
+      graphPrefix = '/api/results/graphs/';
+      updateSourceBanner();
+    }
+
     hide('no-results');
-    renderCallouts(r.data.results);
-    renderTable(r.data.results);
-    await loadGraphs();
+    renderCallouts(summary);
+    renderTable(summary);
+    await loadGraphs(graphFiles, graphPrefix);
     show('results-content');
   } catch (e) {
     console.warn('Results load failed:', e);
+  }
+}
+
+async function loadBaselineResults() {
+  resultsView = 'baseline';
+  await loadResults();
+}
+
+function toggleResultsView() {
+  resultsView = resultsView === 'baseline' ? 'experiment' : 'baseline';
+  loadResults();
+}
+
+function updateSourceBanner(experimentId, experimentConfig) {
+  const banner = q('results-source');
+  const label  = q('results-source-label');
+  const btn    = q('btn-view-toggle');
+
+  if (resultsView === 'experiment' && experimentId) {
+    const cfg = experimentConfig || {};
+    label.textContent = `Viewing: Experiment run ${experimentId} ` +
+      `(${cfg.n_episodes} eps × ${(cfg.failure_rates || []).length} rates, ` +
+      `${cfg.evaluated_at || 'recent'}) — baseline untouched`;
+    btn.textContent = 'Show canonical baseline';
+    show(banner);
+  } else if (resultsView === 'experiment') {
+    // Latest-experiment request failed; fall back silently below.
+    hide(banner);
+  } else {
+    label.textContent = 'Viewing: Canonical baseline (frozen post-training evaluation)';
+    btn.textContent = 'Show latest experiment run';
+    show(banner);
+    checkExperimentAvailability();
+  }
+}
+
+async function checkExperimentAvailability() {
+  try {
+    const r = await api('/api/experiments/latest');
+    q('btn-view-toggle').disabled = !r.success;
+  } catch {
+    q('btn-view-toggle').disabled = true;
   }
 }
 
@@ -307,31 +387,30 @@ function renderTable(results) {
   });
 }
 
-async function loadGraphs() {
+async function loadGraphs(graphFiles, graphPrefix) {
   try {
-    const r = await api('/api/results/graphs');
-    if (!r.success || !r.data.length) return;
+    if (!graphFiles || !graphFiles.length) return;
 
     const grid = q('graphs-grid');
     grid.innerHTML = '';
 
     const labels = {
-      'collision_rate.png':      'Collision Rate \u2014 Agent B wins at ALL 4 failure rates (genuine training result)',
-      'collision_free_rate.png': 'Collision-Free Rate \u2014 Agent B crash-free in 3 of 4 conditions',
-      'avg_duration.png':        'Episode Duration \u2014 Agent B survives longer at all failure rates',
-      'avg_reward.png':          'Average Reward \u2014 B wins at 0% and 10%; roughly even overall',
-      'avg_speed.png':           'Average Speed \u2014 Agent A drives faster (B trades speed for safety)',
+      'collision_rate.png':      'Collision Rate — Agent B wins at ALL 4 failure rates (genuine training result)',
+      'collision_free_rate.png': 'Collision-Free Rate — Agent B crash-free in 3 of 4 conditions',
+      'avg_duration.png':        'Episode Duration — Agent B survives longer at all failure rates',
+      'avg_reward.png':          'Average Reward — B wins at 0% and 10%; roughly even overall',
+      'avg_speed.png':           'Average Speed — Agent A drives faster (B trades speed for safety)',
     };
 
     // B-wins metrics first
     const ordered = ['collision_rate.png', 'collision_free_rate.png', 'avg_duration.png', 'avg_reward.png', 'avg_speed.png'];
-    const sorted  = [...ordered.filter(f => r.data.includes(f)), ...r.data.filter(f => !ordered.includes(f))];
+    const sorted  = [...ordered.filter(f => graphFiles.includes(f)), ...graphFiles.filter(f => !ordered.includes(f))];
 
     sorted.forEach(fn => {
       const card = document.createElement('div');
       card.className = 'graph-card';
       card.innerHTML = `
-        <img src="/api/results/graphs/${fn}" alt="${labels[fn] || fn}" loading="lazy" />
+        <img src="${graphPrefix}${fn}" alt="${labels[fn] || fn}" loading="lazy" />
         <div class="graph-label">${labels[fn] || fn}</div>
       `;
       grid.appendChild(card);
@@ -349,17 +428,8 @@ async function runExplanation() {
   show('explain-loading');
   q('btn-explain').disabled = true;
 
-  // Check cache first
-  try {
-    const cached = await api('/api/explain/result');
-    if (cached.success && cached.data.result && !cached.data.running) {
-      renderExplanation(cached.data.result);
-      hide('explain-loading');
-      q('btn-explain').disabled = false;
-      return;
-    }
-  } catch {}
-
+  // Always run a fresh OpenCode query: explanations are ephemeral UI output,
+  // never read back from any cache.
   try {
     const r = await api('/api/explain', { method: 'POST' });
     if (!r.success) {
@@ -398,9 +468,85 @@ async function pollExplain() {
 }
 
 function renderExplanation(text) {
-  q('explain-text').textContent = text;
+  q('explain-text').innerHTML = markdownToHtml(text);
   show('explain-output');
   q('explain-output').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function markdownToHtml(text) {
+  // Process line by line
+  const lines = text.split('\n');
+  const out = [];
+  let inParagraph = false;
+
+  const closeParagraph = () => {
+    if (inParagraph) { out.push('</p>'); inParagraph = false; }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // Escape HTML entities first
+    line = line
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Apply inline formatting
+    line = line
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+      .replace(/`(.+?)`/g,       '<code>$1</code>');
+
+    // H2: ## heading
+    if (/^##\s+/.test(line)) {
+      closeParagraph();
+      out.push(`<h3 class="explain-heading">${line.replace(/^##\s+/, '')}</h3>`);
+      continue;
+    }
+    // H3: ### heading
+    if (/^###\s+/.test(line)) {
+      closeParagraph();
+      out.push(`<h4 class="explain-subheading">${line.replace(/^###\s+/, '')}</h4>`);
+      continue;
+    }
+    // Q-style headings: Q1: ... Q2: ... etc (the format OpenCode uses for our prompt)
+    if (/^Q\d+[:\.]/.test(line.replace(/&amp;|&lt;|&gt;/g, ''))) {
+      closeParagraph();
+      out.push(`<h3 class="explain-heading">${line}</h3>`);
+      continue;
+    }
+    // Bullet: - item or * item
+    if (/^[\-\*]\s+/.test(line)) {
+      closeParagraph();
+      // Peek ahead to collect the whole list
+      out.push('<ul class="explain-list">');
+      while (i < lines.length && /^[\-\*]\s+/.test(lines[i])) {
+        let li = lines[i]
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`(.+?)`/g, '<code>$1</code>')
+          .replace(/^[\-\*]\s+/, '');
+        out.push(`<li>${li}</li>`);
+        i++;
+      }
+      out.push('</ul>');
+      i--; // step back one — outer loop will increment
+      continue;
+    }
+    // Blank line — close paragraph
+    if (line.trim() === '') {
+      closeParagraph();
+      continue;
+    }
+    // Regular text — open/continue paragraph
+    if (!inParagraph) { out.push('<p>'); inParagraph = true; }
+    else out.push(' ');
+    out.push(line.trim());
+  }
+  closeParagraph();
+  return out.join('');
 }
 
 // ── Helpers ────────────────────────────────────────────────

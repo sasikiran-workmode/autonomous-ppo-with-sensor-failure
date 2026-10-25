@@ -129,8 +129,31 @@ echo "-- Step 5/6: Running evaluation"
 if [[ "$SKIP_EVAL" == "1" ]]; then
   echo "   SKIP_EVAL=1: skipping evaluation."
 elif [[ -f "$SUMMARY" ]]; then
-  echo "   Evaluation results already exist -- skipping."
-  echo "   Delete $SUMMARY to force re-evaluation."
+  # Only trust the baseline if it is the genuine full evaluation:
+  # same episode count and failure rates as this script would run.
+  BASELINE_EPISODES=$(
+    "$PYTHON" -c "
+import json, sys
+try:
+    with open('$SUMMARY') as f:
+        cfg = json.load(f)['experiment_config']
+    print(int(cfg['n_episodes']))
+except Exception:
+    print('INVALID')
+"
+  )
+  if [[ "$BASELINE_EPISODES" == "$EVAL_EPISODES" ]]; then
+    echo "   Genuine ${BASELINE_EPISODES}-episode baseline already exists -- skipping."
+  else
+    echo "   WARNING: $SUMMARY is not a genuine ${EVAL_EPISODES}-episode baseline"
+    echo "   (found: ${BASELINE_EPISODES}). Removing corrupted results and"
+    echo "   re-running the real evaluation..."
+    rm -f "$SUMMARY" "results/episode_metrics.csv"
+    rm -rf "results/graphs"
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+      "$PYTHON" evaluate.py --episodes "$EVAL_EPISODES" --failure-rates 0 0.05 0.10 0.20 --force
+    echo "   Genuine baseline regenerated."
+  fi
 else
   echo "   Evaluating both agents at 0%, 5%, 10%, 20% failure rates..."
   echo "   (${EVAL_EPISODES} episodes per condition x 8 conditions)"

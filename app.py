@@ -73,7 +73,6 @@ def index():
 def status():
     models = _model_status()
     has_results = os.path.exists(config.SUMMARY_JSON)
-    has_explanation = os.path.exists(config.EXPLANATION_TXT)
     has_graphs = (
         os.path.isdir(config.GRAPHS_DIR) and
         bool(list(Path(config.GRAPHS_DIR).glob("*.png")))
@@ -83,7 +82,6 @@ def status():
         "models": models,
         "has_results": has_results,
         "has_graphs": has_graphs,
-        "has_explanation": has_explanation,
         "opencode_available": opencode_ok,
         "demo_running": sim_manager.is_running,
         "eval_running": _eval_state["running"],
@@ -94,6 +92,11 @@ def status():
 
 @app.route("/api/evaluate", methods=["POST"])
 def start_evaluation():
+    """Run a user experiment evaluation in a background thread.
+
+    Experiments NEVER touch the canonical baseline results: they are written
+    to results/experiments/<run_id>/ (see evaluate.run_evaluation).
+    """
     global _eval_state
     if _eval_state["running"]:
         return _err("Evaluation is already running.", 409)
@@ -107,7 +110,7 @@ def start_evaluation():
 
     data = request.get_json(silent=True) or {}
     n_episodes = int(data.get("episodes", config.DEFAULT_EVAL_EPISODES))
-    failure_rates = data.get("failure_rates", config.EVAL_FAILURE_RATES)
+    failure_rates = [float(fr) for fr in data.get("failure_rates", config.EVAL_FAILURE_RATES)]
 
     _eval_state = {
         "running": True,
@@ -132,6 +135,7 @@ def start_evaluation():
                 n_episodes=n_episodes,
                 failure_rates=failure_rates,
                 progress_callback=_cb,
+                baseline=False,   # experiments never overwrite the canonical baseline
             )
             _eval_state["done"] = True
             _eval_state["message"] = "Evaluation complete."
@@ -176,11 +180,71 @@ def serve_graph(filename: str):
 
 @app.route("/api/results/episodes")
 def get_episodes():
+    """Per-episode records of the CANONICAL baseline evaluation."""
     import pandas as pd
     if not os.path.exists(config.EPISODE_METRICS_CSV):
         return _err("No episode data found. Run evaluation first.", 404)
     df = pd.read_csv(config.EPISODE_METRICS_CSV)
     return _ok(df.to_dict(orient="records"))
+
+
+# ─── Experiment Runs ───────────────────────────────────────────────────────────
+
+def _experiment_ids():
+    """List experiment run ids (directory names), oldest first."""
+    if not os.path.isdir(config.EXPERIMENTS_DIR):
+        return []
+    return sorted(
+        d for d in os.listdir(config.EXPERIMENTS_DIR)
+        if os.path.isdir(os.path.join(config.EXPERIMENTS_DIR, d))
+    )
+
+
+def _experiment_summary(run_id: str):
+    path = os.path.join(config.EXPERIMENTS_DIR, run_id, "summary.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.route("/api/experiments")
+def list_experiments():
+    runs = []
+    for run_id in _experiment_ids():
+        s = _experiment_summary(run_id)
+        if s is None:
+            continue
+        cfg = s.get("experiment_config", {})
+        runs.append({
+            "id": run_id,
+            "evaluated_at": cfg.get("evaluated_at"),
+            "n_episodes": cfg.get("n_episodes"),
+        })
+    return _ok(runs)
+
+
+@app.route("/api/experiments/latest")
+def latest_experiment():
+    ids = _experiment_ids()
+    if not ids:
+        return _err("No experiment runs found.", 404)
+    run_id = ids[-1]
+    s = _experiment_summary(run_id)
+    if s is None:
+        return _err("No experiment runs found.", 404)
+    graphs_dir = os.path.join(config.EXPERIMENTS_DIR, run_id, "graphs")
+    graphs = sorted(f for f in os.listdir(graphs_dir) if f.endswith(".png")) \
+        if os.path.isdir(graphs_dir) else []
+    return _ok({"id": run_id, "summary": s, "graphs": graphs})
+
+
+@app.route("/api/experiments/<run_id>/graphs/<filename>")
+def serve_experiment_graph(run_id: str, filename: str):
+    # run_id/filename are sanitized: flask path converters exclude '/', and
+    # send_from_directory guards against path traversal.
+    graphs_dir = os.path.join(config.EXPERIMENTS_DIR, run_id, "graphs")
+    return send_from_directory(graphs_dir, filename)
 
 
 # ─── Live Demo ────────────────────────────────────────────────────────────────
@@ -269,12 +333,13 @@ def start_explain():
 
 @app.route("/api/explain/result")
 def get_explanation():
-    state = dict(_explain_state)
-    # Also check if we have a saved explanation file
-    if state.get("result") is None and os.path.exists(config.EXPLANATION_TXT):
-        with open(config.EXPLANATION_TXT) as f:
-            state["result"] = f.read()
-    return _ok(state)
+    """Current in-progress / completed explanation state of this server session.
+
+    Explanations are ephemeral UI output: nothing is persisted to disk, so a
+    server restart (or a fresh session) starts with no explanation and the
+    button triggers a fresh OpenCode run.
+    """
+    return _ok(dict(_explain_state))
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

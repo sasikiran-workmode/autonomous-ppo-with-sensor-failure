@@ -12,9 +12,13 @@ AGENT_A_PATH = os.path.join(MODEL_DIR, "agent_a_ppo")   # .zip appended by SB3
 AGENT_B_PATH = os.path.join(MODEL_DIR, "agent_b_ppo")
 AGENT_A_META = os.path.join(MODEL_DIR, "agent_a_meta.json")
 AGENT_B_META = os.path.join(MODEL_DIR, "agent_b_meta.json")
+# Canonical (post-training baseline) evaluation outputs — written ONCE, never
+# overwritten by browser-initiated runs.
 EPISODE_METRICS_CSV = os.path.join(RESULTS_DIR, "episode_metrics.csv")
 SUMMARY_JSON = os.path.join(RESULTS_DIR, "summary.json")
-EXPLANATION_TXT = os.path.join(RESULTS_DIR, "explanation.txt")
+# User-initiated experiment runs (browser "Run Evaluation" button) go here so
+# they can never clobber the canonical baseline.
+EXPERIMENTS_DIR = os.path.join(RESULTS_DIR, "experiments")
 
 # ─── Training defaults ────────────────────────────────────────────────────────
 DEFAULT_SEED_A = 42

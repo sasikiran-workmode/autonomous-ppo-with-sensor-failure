@@ -14,50 +14,35 @@ OpenCode so it interprets computed values rather than inventing them.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
-import time
 import traceback
 from typing import Tuple
+
+# Strip ANSI escape codes from OpenCode's terminal output
+_ANSI = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
 
 import config
 
 
 PROMPT_TEMPLATE = """
-You are an AI assistant analysing reinforcement-learning evaluation results.
-The attached file (summary.json) contains the complete measured data from an experiment
-comparing two PPO driving agents on the highway-v0 environment:
+Analyse these PPO driving agent results. For each question below, use it as a heading and answer in 2-3 sentences max. Use only the numbers in the data. Do not invent figures.
 
-  • Agent A — Baseline PPO, trained WITHOUT any sensor failures.
-  • Agent B — PPO trained WITH simulated sensor failures (10% per timestep dropout).
+Agent A = baseline PPO, no sensor failures during training.
+Agent B = PPO with curriculum sensor dropout + safety reward (collision penalty x5, halved speed reward).
+Evaluated at 0%, 5%, 10%, 20% sensor failure rates. "comparisons" key has pre-computed deltas.
 
-Both agents were evaluated under four sensor-failure rates: 0%, 5%, 10%, and 20%.
-At each rate, 30 episodes were run with deterministic policies.
-
-Pre-computed numerical differences (Agent B minus Agent A) are in the "comparisons" key.
-Percentage changes are also pre-computed. Use ONLY these values — do not invent numbers.
-
-Please answer the following questions based solely on the provided data:
-
-1. What do the results show overall? Give a concise summary of each agent's performance.
-2. Which agent performed better under each tested failure rate (0%, 5%, 10%, 20%)
-   in terms of collision rate, average reward, and average speed?
-3. Is there a safety vs speed trade-off? Does reducing collision risk come at the cost
-   of lower speed or reward?
-4. What do the results suggest about the hypothesis that sensor-failure training improves
-   robustness? Is the evidence strong, weak, or inconclusive? Say so honestly.
-5. What are the main limitations of this experiment (e.g. simulation vs real world,
-   number of episodes, single traffic configuration)?
-6. What further experiments or modifications would provide stronger evidence?
-
-Rules:
-  - Use ONLY the measurements in the provided JSON. Do not invent any numbers.
-  - If the results are inconclusive or show no meaningful difference, say so clearly.
-  - Do not claim the simulation results demonstrate real-world vehicle safety.
-  - Do not compute your own statistics — use the "comparisons" values provided.
-  - Respond in clear, plain English suitable for a project report. Use headers and
-    bullet points where helpful.
+Q1: Which agent is safer and by how much?
+Q2: What does Agent B give up to achieve lower collision rates?
+Q3: Is the improvement from dropout training, reward shaping, or impossible to tell from this data alone?
+Q4: Why does Agent B sometimes score lower reward than A even at 0% failure — is that a flaw or expected?
+Q5: Can these results be trusted, or are the episode counts too small to draw conclusions?
+Q6: What single experiment would most strengthen or disprove this study's main claim?
+Q7: If this policy were deployed on a real vehicle, what is the one result here that should concern an engineer most?
+Q8: What does the speed-reward pattern across all four failure rates reveal about what Agent B actually learned?
+Q9: Does the data support the claim that sensor-failure training produces a more robust policy, or just a more cautious one?
 """.strip()
 
 
@@ -120,13 +105,17 @@ def explain_results(
     if progress_callback:
         progress_callback("Invoking OpenCode for result interpretation...")
 
-    # ── Build command ─────────────────────────────────────────────────────────
-    # opencode run -m <provider/model> -f <file> <prompt>
+    # ── Build prompt — inline the JSON data directly (no -f flag) ────────────
+    with open(summary_path) as f:
+        json_text = f.read()
+    full_prompt = PROMPT_TEMPLATE + "\n\n---\nDATA (summary.json):\n" + json_text
+
+    # ── Build command — matches the working MAD-2 pattern exactly ─────────────
+    # opencode run --model <provider/model> <prompt>
     cmd = [
         "opencode", "run",
-        "-m", "opencode/mimo-v2.6-flash-free",
-        "-f", summary_path,
-        PROMPT_TEMPLATE,
+        "--model", "opencode/mimo-v2.6-flash-free",
+        full_prompt,
     ]
 
     # ── Execute ───────────────────────────────────────────────────────────────
@@ -136,6 +125,7 @@ def explain_results(
             capture_output=True,
             text=True,
             timeout=300,   # 5 minutes max
+            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError("OpenCode timed out after 5 minutes.")
@@ -145,7 +135,7 @@ def explain_results(
         )
 
     if result.returncode != 0:
-        stderr = result.stderr.strip() or "(no stderr)"
+        stderr = _ANSI.sub('', result.stderr).strip() or "(no stderr)"
         raise RuntimeError(
             f"OpenCode exited with code {result.returncode}.\n"
             f"Stderr: {stderr}\n\n"
@@ -155,20 +145,15 @@ def explain_results(
             "  • Network connectivity issue"
         )
 
-    explanation = result.stdout.strip()
+    explanation = _ANSI.sub('', result.stdout).strip()
     if not explanation:
         raise RuntimeError(
             "OpenCode returned an empty response. "
             "Check your provider configuration with: opencode"
         )
 
-    # ── Save to disk ──────────────────────────────────────────────────────────
-    os.makedirs(config.RESULTS_DIR, exist_ok=True)
-    with open(config.EXPLANATION_TXT, "w") as f:
-        f.write(f"Generated: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n\n")
-        f.write(explanation)
-    print(f"[explain] Explanation saved → {config.EXPLANATION_TXT}")
-
+    # Explanation is ephemeral UI output: returned to the caller (dashboard)
+    # and NOT persisted to disk, so it can never go stale or pollute results/.
     return explanation
 
 

@@ -122,8 +122,8 @@
 
     <!-- Evaluation -->
     <section class="section" id="section-eval">
-      <h2 class="section-title">Run Full Evaluation</h2>
-      <p class="section-desc">Run all 8 conditions (2 agents x 4 failure rates, 30 episodes each) and generate comparison charts.</p>
+      <h2 class="section-title">Run Evaluation Experiment</h2>
+      <p class="section-desc">Run all 8 conditions (2 agents x 4 failure rates) with an episode count of your choice. Results are saved under results/experiments/ — the canonical baseline charts and metrics are frozen and are never overwritten.</p>
 
       <div class="panel eval-panel">
         <div class="eval-row">
@@ -157,9 +157,14 @@
       <div class="section-header-row">
         <div>
           <h2 class="section-title">Results</h2>
-          <p class="section-desc">Aggregate metrics from the evaluation run across all 8 conditions (2 agents x 4 failure rates, 30 episodes each).</p>
+          <p class="section-desc">Aggregate metrics across all 8 conditions (2 agents x 4 failure rates).</p>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="loadResults()">Refresh</button>
+      </div>
+
+      <div id="results-source" class="results-source hidden">
+        <span id="results-source-label"></span>
+        <button id="btn-view-toggle" class="btn btn-secondary btn-sm" onclick="toggleResultsView()"></button>
       </div>
 
       <div id="no-results" class="empty-state panel">

@@ -2,12 +2,11 @@
 evaluate.py — Evaluate both trained agents under 4 sensor-failure rates.
 
 Runs 8 conditions (2 agents × 4 failure rates), records per-episode metrics,
-saves results to CSV + JSON, and generates comparison graphs.
-
-Usage:
-    python evaluate.py
+saves results to CSV + JSON, and generates comparison graphs.    Usage:
+    python evaluate.py                        # canonical 30-episode baseline (frozen once written)
     python evaluate.py --episodes 30 --failure-rates 0 0.05 0.10 0.20
-    python evaluate.py --episodes 10 --failure-rates 0 0.10   # quick test
+    python evaluate.py --force               # regenerate the canonical baseline
+    python evaluate.py --episodes 10 --failure-rates 0 0.10 --force   # quick test
 """
 
 import argparse
@@ -185,8 +184,16 @@ def _bar_chart(title, ylabel, metric_key, summary, failure_rates, save_path, pct
     print(f"[evaluate] Graph saved → {save_path}")
 
 
-def generate_graphs(summary, failure_rates):
-    ensure_dirs()
+def generate_graphs(summary, failure_rates, graphs_dir=None):
+    """Generate the 5 comparison charts.
+
+    Args:
+        graphs_dir: Where to write the PNGs. Defaults to the canonical graphs
+            directory; experiment runs pass their own per-run directory.
+    """
+    if graphs_dir is None:
+        graphs_dir = config.GRAPHS_DIR
+    os.makedirs(graphs_dir, exist_ok=True)
 
     _bar_chart(
         title="Collision Rate by Agent and Sensor Failure Probability",
@@ -194,7 +201,7 @@ def generate_graphs(summary, failure_rates):
         metric_key="collision_rate",
         summary=summary,
         failure_rates=failure_rates,
-        save_path=os.path.join(config.GRAPHS_DIR, "collision_rate.png"),
+        save_path=os.path.join(graphs_dir, "collision_rate.png"),
         pct=True,
     )
 
@@ -204,7 +211,7 @@ def generate_graphs(summary, failure_rates):
         metric_key="avg_reward",
         summary=summary,
         failure_rates=failure_rates,
-        save_path=os.path.join(config.GRAPHS_DIR, "avg_reward.png"),
+        save_path=os.path.join(graphs_dir, "avg_reward.png"),
         pct=False,
     )
 
@@ -214,7 +221,7 @@ def generate_graphs(summary, failure_rates):
         metric_key="avg_speed",
         summary=summary,
         failure_rates=failure_rates,
-        save_path=os.path.join(config.GRAPHS_DIR, "avg_speed.png"),
+        save_path=os.path.join(graphs_dir, "avg_speed.png"),
         pct=False,
     )
 
@@ -224,7 +231,7 @@ def generate_graphs(summary, failure_rates):
         metric_key="avg_duration",
         summary=summary,
         failure_rates=failure_rates,
-        save_path=os.path.join(config.GRAPHS_DIR, "avg_duration.png"),
+        save_path=os.path.join(graphs_dir, "avg_duration.png"),
         pct=False,
     )
 
@@ -234,26 +241,65 @@ def generate_graphs(summary, failure_rates):
         metric_key="collision_free_rate",
         summary=summary,
         failure_rates=failure_rates,
-        save_path=os.path.join(config.GRAPHS_DIR, "collision_free_rate.png"),
+        save_path=os.path.join(graphs_dir, "collision_free_rate.png"),
         pct=True,
     )
 
 
 # ─── Main evaluation loop ─────────────────────────────────────────────────────
 
-def run_evaluation(n_episodes: int, failure_rates: list, progress_callback=None):
+def run_evaluation(n_episodes: int, failure_rates: list, progress_callback=None,
+                   baseline: bool = False, force: bool = False):
     """
     Run the full 8-condition evaluation.
+
+    Two output modes:
+      • baseline=True  → canonical post-training baseline. Writes the canonical
+        summary.json / episode_metrics.csv / graphs. These are the official
+        results for the trained models and are written ONCE: an existing
+        canonical dataset is never overwritten unless force=True.
+      • baseline=False → user experiment (e.g. triggered from the browser).
+        Writes everything to results/experiments/<run_id>/ so it can never
+        clobber the canonical baseline.
 
     Args:
         n_episodes: Episodes per condition.
         failure_rates: List of float dropout probabilities to test.
         progress_callback: Optional callable(current, total, message) for UI updates.
+        baseline: Whether this is the canonical post-training evaluation.
+        force: Only for baseline=True — overwrite the existing canonical results.
 
     Returns:
         (all_episodes: list, summary: dict)
     """
-    ensure_dirs()
+    n_episodes = int(n_episodes)
+    if n_episodes < 1:
+        raise ValueError(f"n_episodes must be >= 1 (got {n_episodes}).")
+    failure_rates = sorted(float(fr) for fr in failure_rates)
+
+    # ── Decide where outputs go ───────────────────────────────────────────────
+    if baseline:
+        summary_path = config.SUMMARY_JSON
+        csv_path = config.EPISODE_METRICS_CSV
+        graphs_dir = config.GRAPHS_DIR
+        out_dir = config.RESULTS_DIR
+
+        if not force and os.path.exists(summary_path):
+            raise RuntimeError(
+                f"Canonical baseline results already exist at {summary_path}.\n"
+                "They are frozen and are never overwritten by evaluation runs.\n"
+                "Pass force=True to explicitly replace them."
+            )
+    else:
+        run_id = time.strftime("%Y%m%d-%H%M%S")
+        out_dir = os.path.join(config.EXPERIMENTS_DIR, run_id)
+        summary_path = os.path.join(out_dir, "summary.json")
+        csv_path = os.path.join(out_dir, "episode_metrics.csv")
+        graphs_dir = os.path.join(out_dir, "graphs")
+
+    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(graphs_dir, exist_ok=True)
+
     model_a, model_b = load_models()
 
     agents = [("A", model_a), ("B", model_b)]
@@ -310,8 +356,8 @@ def run_evaluation(n_episodes: int, failure_rates: list, progress_callback=None)
 
     # ── Save CSV ──────────────────────────────────────────────────────────────
     df = pd.DataFrame(all_episodes)
-    df.to_csv(config.EPISODE_METRICS_CSV, index=False)
-    print(f"\n[evaluate] Episode data → {config.EPISODE_METRICS_CSV} ({len(df)} rows)")
+    df.to_csv(csv_path, index=False)
+    print(f"\n[evaluate] Episode data → {csv_path} ({len(df)} rows)")
 
     # ── Compute summary ───────────────────────────────────────────────────────
     summary = build_summary(all_episodes)
@@ -329,16 +375,33 @@ def run_evaluation(n_episodes: int, failure_rates: list, progress_callback=None)
         "comparisons":  comparisons,
     }
 
-    with open(config.SUMMARY_JSON, "w") as f:
+    with open(summary_path, "w") as f:
         json.dump(full_summary, f, indent=2, default=str)
-    print(f"[evaluate] Summary → {config.SUMMARY_JSON}")
+    print(f"[evaluate] Summary → {summary_path}")
 
-    # ── Generate graphs ───────────────────────────────────────────────────────
-    generate_graphs(summary, failure_rates)
+    # ── Generate graphs ─────────────────────────────────────────────────────
+    if baseline and not force:
+        # Canonical graphs are frozen: generate once, only if missing.
+        _expected_graphs = [
+            "collision_rate.png", "collision_free_rate.png",
+            "avg_reward.png", "avg_speed.png", "avg_duration.png",
+        ]
+        _all_present = all(
+            os.path.exists(os.path.join(config.GRAPHS_DIR, fn))
+            for fn in _expected_graphs
+        )
+        if _all_present:
+            print("[evaluate] Canonical graphs already exist — skipping regeneration.")
+        else:
+            generate_graphs(summary, failure_rates)
+    else:
+        # Experiments (and force regeneration) write their own graphs.
+        generate_graphs(summary, failure_rates, graphs_dir=graphs_dir)
 
     if progress_callback:
         progress_callback(total_conditions, total_conditions, "Done!")
 
+    print(f"[evaluate] Outputs written to → {out_dir}")
     return all_episodes, full_summary
 
 
@@ -358,6 +421,17 @@ if __name__ == "__main__":
         dest="failure_rates",
         help="List of sensor-failure probabilities to test (default: 0 0.05 0.10 0.20)."
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Overwrite the existing canonical baseline results (summary.json, "
+             "episode_metrics.csv, graphs). Without this flag the CLI refuses "
+             "to touch existing canonical results."
+    )
     args = parser.parse_args()
 
-    run_evaluation(n_episodes=args.episodes, failure_rates=args.failure_rates)
+    run_evaluation(
+        n_episodes=args.episodes,
+        failure_rates=args.failure_rates,
+        baseline=True,
+        force=args.force,
+    )

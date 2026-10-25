@@ -29,7 +29,7 @@ chmod +x start-ppo.sh
 2. Installs all dependencies from `requirements.txt`
 3. Trains **Agent A** (baseline, 200k timesteps) — skips if `models/agent_a_ppo.zip` exists
 4. Trains **Agent B** (sensor-robust curriculum, 200k timesteps) — skips if `models/agent_b_ppo.zip` exists
-5. Runs the full 8-condition evaluation (30 eps each) — skips if `results/summary.json` exists
+5. Runs the full 8-condition evaluation (30 eps each) — skips if a genuine 30-episode `results/summary.json` exists (corrupted or wrong-size baselines are detected and re-run; pass `--force` to `evaluate.py` to overwrite deliberately)
 6. Launches the Flask dashboard at **http://127.0.0.1:5000**
 7. Auto-opens your browser
 
@@ -206,9 +206,9 @@ rl-project/
 │   └── checkpoints/      # Per-phase Agent B checkpoints (phase1–4)
 ├── results/
 │   ├── episode_metrics.csv   # 240 rows of raw episode data
-│   ├── summary.json          # Aggregate metrics (read by dashboard + OpenCode)
-│   ├── explanation.txt       # Cached OpenCode output
-│   └── graphs/               # 5 PNG comparison charts
+│   ├── summary.json          # Canonical baseline metrics (written once, frozen)
+│   ├── experiments/          # Per-run experiment outputs (browser "Run Evaluation")
+│   └── graphs/               # 5 PNG comparison charts (baseline, frozen)
 ├── requirements.txt
 └── README.md
 ```
