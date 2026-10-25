@@ -1,0 +1,30 @@
+# OpenCode Interpretation — Canonical Baseline (30 Episodes)
+<!-- Generated: 2026-10-25T16:01:00 | Model: mimo-v2.6-flash-free -->
+<!-- Source: results/summary.json (frozen post-training evaluation) | Do not edit by hand; regenerate with: python explain_results.py -->
+
+## Q1: Which agent is safer and by how much?
+Agent B: it cuts collision rate by 0.1334 / 0.1333 / 0.1667 / 0.10 at 0% / 5% / 10% / 20% failure — a −80.02% relative drop at 0% and −100% at every failure rate (B: 0.0333, 0.0, 0.0, 0.0 vs A: 0.1667, 0.1333, 0.1667, 0.10).
+
+## Q2: What does Agent B give up to achieve lower collision rates?
+Speed, uniformly: B runs 1.8419 / 2.0263 / 1.3617 / 1.6324 slower than A across the four conditions. Reward is also lower at 5% (−1.248, −4.12%) and 20% (−0.0486, −0.17%), though higher at 0% (+0.8483) and 10% (+0.9433).
+
+## Q3: Dropout, reward shaping, or impossible to tell?
+Impossible to tell. Agent B changed two things at once (curriculum dropout + collision penalty x5 and halved speed reward) and there is no single-intervention arm to separate them.
+
+## Q4: Why does B sometimes score lower reward than A even at 0% failure?
+The premise doesn't match the data: at 0% failure B scores *higher*, +0.8483 (+2.99%). B is lower only at 5% (−1.248, −4.12%) and 20% (−0.0486, −0.17%), which is the expected consequence of the halved speed reward and B's slower average speed (20.31 vs 22.34; 20.24 vs 21.87) — not a flaw.
+
+## Q5: Can these results be trusted, or are episode counts too small?
+30 episodes per cell means one collision moves the rate by 0.0333, so B's 0.0333 at 0% is a single event and A's 0.1667 is five. Reward noise is also large for A (std 6.8067, 6.6183, 5.3513) versus B (1.5207, 0.9884, 0.7044, 0.7769), so the reward deltas (smallest −0.0486) are well inside A's spread — collision direction looks consistent, reward differences mostly do not.
+
+## Q6: What single experiment would most strengthen or disprove the main claim?
+Train a third agent with *only* curriculum sensor dropout (no collision-penalty x5 / halved speed reward) and evaluate it at the same four failure rates with the same 30-episode protocol. That single ablation arm separates the two interventions and shows whether robustness comes from dropout exposure or just from a slower, more cautious policy.
+
+## Q7: The one result that should concern a deployed engineer most?
+A's collision rate does not worsen with sensor failure — 0.1667 at 0% but only 0.10 at 20% — so the eval never demonstrates that losing sensors actually hurts this environment. If failure injection doesn't degrade the baseline, B's −100% deltas may reflect general caution rather than failure-specific robustness, and real sensor loss could be far worse than simulated.
+
+## Q8: What does the speed-reward pattern reveal about what B actually learned?
+B's average speed is essentially flat across conditions — 20.3224, 20.3088, 20.2214, 20.2391, a range of 0.1010 — while A varies more (22.1643 → 21.5831 → 21.8715). B sits at the floor of reward_speed_range [20, 30] regardless of how much sensing it has, so it learned a fixed low-speed policy set by the halved speed reward, not speed adapted to sensor availability.
+
+## Q9: Robust policy or just a cautious one?
+Just a more cautious one on this evidence. B's collision rate (0.0333 → 0 → 0 → 0) and reward (29.2041, 29.0630, 29.2474, 29.2041) barely move with failure rate, and A's collision rate doesn't rise with failure either — so neither policy reacts to sensor loss, and B's uniform speed reduction (−1.36 to −2.03) plus its 40.0 duration at 5/10/20% shows a constant slower strategy rather than failure-specific adaptation.

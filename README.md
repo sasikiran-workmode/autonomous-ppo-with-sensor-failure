@@ -207,6 +207,7 @@ rl-project/
 ├── results/
 │   ├── episode_metrics.csv   # 240 rows of raw episode data
 │   ├── summary.json          # Canonical baseline metrics (written once, frozen)
+│   ├── baseline_explanation.txt  # Stored OpenCode baseline interpretation
 │   ├── experiments/          # Per-run experiment outputs (browser "Run Evaluation")
 │   └── graphs/               # 5 PNG comparison charts (baseline, frozen)
 ├── requirements.txt

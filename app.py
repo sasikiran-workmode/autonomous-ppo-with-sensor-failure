@@ -45,6 +45,12 @@ _explain_state = {
     "error": None,
 }
 
+# Background baseline-explanation state (result lives only in the file)
+_explain_baseline_state = {
+    "running": False,
+    "error": None,
+}
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +88,7 @@ def status():
         "models": models,
         "has_results": has_results,
         "has_graphs": has_graphs,
+        "has_baseline_explanation": os.path.exists(config.BASELINE_EXPLANATION_TXT),
         "opencode_available": opencode_ok,
         "demo_running": sim_manager.is_running,
         "eval_running": _eval_state["running"],
@@ -208,6 +215,14 @@ def _experiment_summary(run_id: str):
         return json.load(f)
 
 
+def _latest_experiment_summary_path():
+    ids = _experiment_ids()
+    if not ids:
+        return None
+    path = os.path.join(config.EXPERIMENTS_DIR, ids[-1], "summary.json")
+    return path if os.path.exists(path) else None
+
+
 @app.route("/api/experiments")
 def list_experiments():
     runs = []
@@ -302,25 +317,84 @@ def demo_status():
 
 # ─── OpenCode Explanation ─────────────────────────────────────────────────────
 
+# The canonical baseline explanation is generated ONCE, stored in the repo
+# (results/baseline_explanation.txt) and served from disk instantly from then
+# on — clicking the button never calls OpenCode again for the baseline.
+
+@app.route("/api/explain/baseline", methods=["POST"])
+def start_baseline_explanation():
+    """Return the stored baseline explanation, or generate it once if missing."""
+    global _explain_baseline_state
+
+    if os.path.exists(config.BASELINE_EXPLANATION_TXT):
+        with open(config.BASELINE_EXPLANATION_TXT) as f:
+            return _ok({"result": f.read(), "message": "Loaded stored baseline explanation."})
+
+    if _explain_baseline_state.get("running"):
+        return _err("Baseline explanation is already being generated.", 409)
+
+    if not os.path.exists(config.SUMMARY_JSON):
+        return _err("No baseline results found. Run: python evaluate.py --episodes 30.")
+
+    if not check_opencode()[0]:
+        return _err("OpenCode is not available. Install it and ensure it is on PATH.")
+
+    _explain_baseline_state = {"running": True, "error": None}
+
+    def _run():
+        global _explain_baseline_state
+        try:
+            explain_results(save_to=config.BASELINE_EXPLANATION_TXT)
+            _explain_baseline_state["error"] = None
+        except Exception as e:
+            _explain_baseline_state["error"] = str(e)
+        finally:
+            _explain_baseline_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return _ok({"message": "Generating baseline explanation (first time only)."})
+
+
+@app.route("/api/explain/baseline/get")
+def get_baseline_explanation():
+    """Poll for the baseline explanation (reads/from the stored file when ready)."""
+    state = dict(_explain_baseline_state)
+    if os.path.exists(config.BASELINE_EXPLANATION_TXT):
+        with open(config.BASELINE_EXPLANATION_TXT) as f:
+            state["result"] = f.read()
+    else:
+        state["result"] = None
+    return _ok(state)
+
+
 @app.route("/api/explain", methods=["POST"])
 def start_explain():
+    """Explain the LATEST experiment run via OpenCode (live call, every click).
+
+    Experiments use their own summary under results/experiments/, so the
+    interpretation always reflects the run the user just did.
+    """
     global _explain_state
 
     if _explain_state.get("running"):
         return _err("Explanation is already in progress.", 409)
 
-    if not os.path.exists(config.SUMMARY_JSON):
+    experiment_summary = _latest_experiment_summary_path()
+    if experiment_summary is None:
         return _err(
-            "No evaluation summary found. "
-            "Run the full evaluation first via 'Run Full Evaluation'."
+            "No experiment run found. Click 'Run Evaluation Experiment' first "
+            "(the baseline explanation has its own stored section)."
         )
+
+    if not check_opencode()[0]:
+        return _err("OpenCode is not available. Install it and ensure it is on PATH.")
 
     _explain_state = {"running": True, "result": None, "error": None}
 
     def _run():
         global _explain_state
         try:
-            text = explain_results()
+            text = explain_results(summary_path=experiment_summary)
             _explain_state["result"] = text
         except Exception as e:
             _explain_state["error"] = str(e)
@@ -333,11 +407,10 @@ def start_explain():
 
 @app.route("/api/explain/result")
 def get_explanation():
-    """Current in-progress / completed explanation state of this server session.
+    """In-progress / completed experiment explanation state of this session.
 
-    Explanations are ephemeral UI output: nothing is persisted to disk, so a
-    server restart (or a fresh session) starts with no explanation and the
-    button triggers a fresh OpenCode run.
+    Experiment explanations are ephemeral UI output: nothing is persisted, so
+    every button click triggers a fresh OpenCode run on the latest experiment.
     """
     return _ok(dict(_explain_state))
 

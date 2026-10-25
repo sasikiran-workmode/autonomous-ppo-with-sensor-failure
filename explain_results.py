@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from typing import Tuple
 
@@ -57,6 +58,7 @@ def check_opencode() -> Tuple[bool, str]:
 def explain_results(
     summary_path: str = None,
     progress_callback=None,
+    save_to: str = None,
 ) -> str:
     """
     Run OpenCode on the evaluation summary and return explanation text.
@@ -64,6 +66,10 @@ def explain_results(
     Args:
         summary_path: Path to summary.json (defaults to config.SUMMARY_JSON).
         progress_callback: Optional callable(message: str) for UI updates.
+        save_to: Optional path to persist the explanation. Use this ONLY for
+            the canonical baseline (results/baseline_explanation.txt), which is
+            generated once and served from disk thereafter. Experiment
+            explanations are ephemeral and must NOT be saved.
 
     Returns:
         Explanation text as a string.
@@ -152,14 +158,26 @@ def explain_results(
             "Check your provider configuration with: opencode"
         )
 
-    # Explanation is ephemeral UI output: returned to the caller (dashboard)
-    # and NOT persisted to disk, so it can never go stale or pollute results/.
+    # Persist ONLY when explicitly requested (canonical baseline explanation).
+    if save_to:
+        os.makedirs(os.path.dirname(save_to), exist_ok=True)
+        with open(save_to, "w") as f:
+            f.write(f"""# OpenCode Interpretation — Canonical Baseline (30 Episodes)
+<!-- Generated: {time.strftime('%Y-%m-%dT%H:%M:%S')} | Model: mimo-v2.6-flash-free -->
+<!-- Source: results/summary.json (frozen post-training evaluation) | Do not edit by hand; regenerate with: python explain_results.py -->
+
+""")
+            f.write(explanation)
+        print(f"[explain] Baseline explanation saved → {save_to}")
+
     return explanation
 
 
 if __name__ == "__main__":
     try:
-        text = explain_results()
+        # CLI runs explain the canonical baseline and persist its explanation
+        # to the repo so the dashboard can serve it instantly.
+        text = explain_results(save_to=config.BASELINE_EXPLANATION_TXT)
         print("\n" + "="*60)
         print(text)
     except (FileNotFoundError, RuntimeError) as e:

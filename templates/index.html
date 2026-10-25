@@ -152,19 +152,34 @@
       <div id="eval-error" class="alert alert-error hidden"></div>
     </section>
 
-    <!-- Results -->
+    <!-- Experiment Graphs (browser runs) -->
+    <section class="section" id="section-experiment-graphs">
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">Experiment Graphs</h2>
+          <p class="section-desc">Charts from your latest browser-run evaluation (stored under results/experiments/). The baseline model graphs below are never affected.</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadExperimentGraphs()">Refresh</button>
+      </div>
+
+      <div id="no-experiment-graphs" class="empty-state panel">
+        <p>No experiment run yet. Click "Run Evaluation Experiment" above — your run's 5 charts will appear here (the baseline stays frozen).</p>
+      </div>
+
+      <div id="experiment-graphs-content" class="hidden">
+        <div class="results-source" id="experiment-graphs-label"></div>
+        <div class="graphs-grid" id="graphs-grid-experiment"></div>
+      </div>
+    </section>
+
+    <!-- Baseline Results -->
     <section class="section" id="section-results">
       <div class="section-header-row">
         <div>
-          <h2 class="section-title">Results</h2>
-          <p class="section-desc">Aggregate metrics across all 8 conditions (2 agents x 4 failure rates).</p>
+          <h2 class="section-title">Baseline Results (30 Episodes — Frozen)</h2>
+          <p class="section-desc">Canonical post-training metrics across all 8 conditions (2 agents x 4 failure rates, 30 episodes each). Browser experiments overlap frozen data and charts below.</p>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="loadResults()">Refresh</button>
-      </div>
-
-      <div id="results-source" class="results-source hidden">
-        <span id="results-source-label"></span>
-        <button id="btn-view-toggle" class="btn btn-secondary btn-sm" onclick="toggleResultsView()"></button>
       </div>
 
       <div id="no-results" class="empty-state panel">
@@ -197,32 +212,65 @@
           </div>
         </div>
 
-        <!-- Graphs -->
-        <h3 class="subsection-title">Comparison Charts</h3>
-        <p class="subsection-note">Agent B wins on collision rate at all 4 failure rates (0%–3.3% vs A's 6.7%–16.7%), and survives longer every episode. Agent A drives faster. All results are real measured evaluation data from the retrained curriculum model.</p>
-        <div class="graphs-grid" id="graphs-grid"></div>
       </div>
+    </section>
+
+    <!-- Model Graphs (canonical baseline) -->
+    <section class="section" id="section-model-graphs">
+      <div class="section-header-row">
+        <div>
+          <h2 class="section-title">Model Graphs</h2>
+          <p class="section-desc">The five frozen comparison charts from the canonical 30-episode baseline evaluation. Agent B wins on collision rate at all 4 failure rates and survives longer every episode; Agent A drives faster. These are the real trained-model results — browser experiments never change them.</p>
+        </div>
+      </div>
+
+      <div class="graphs-grid" id="graphs-grid-model"></div>
     </section>
 
     <!-- AI Explanation -->
     <section class="section" id="section-explain">
       <h2 class="section-title">AI Result Interpretation</h2>
-      <p class="section-desc">OpenCode (mimo-v2.6-flash-free) reads the evaluation summary and provides a plain-English analysis of the results.</p>
+      <p class="section-desc">OpenCode (mimo-v2.6-flash-free) analyses evaluation summaries. The baseline interpretation is generated once and stored in the repo; experiment interpretations run live every time.</p>
 
+      <!-- Baseline: stored, instant -->
       <div class="panel explain-panel">
-        <p>OpenCode will explain which agent performed better under each condition and what the evidence suggests about the sensor-failure training hypothesis.</p>
-        <p class="note-text">Note: Requires OpenCode to be installed with a provider configured. Results are based only on measured data — no fabrication.</p>
-        <button id="btn-explain" class="btn btn-primary" onclick="runExplanation()">Explain Results</button>
+        <strong>Baseline Results (30-episode, frozen)</strong>
+        <p>Interpretation of the canonical baseline summary. It was generated once with OpenCode and is stored in <span class="mono">results/baseline_explanation.txt</span> — clicking below shows it instantly, with no AI call.</p>
+        <p class="note-text">If the stored file is missing (fresh clone), the button will generate it once with OpenCode and store it, then always serve the stored copy.</p>
+        <button id="btn-explain-baseline" class="btn btn-primary" onclick="runBaselineExplanation()">Explain Baseline Results</button>
+      </div>
+
+      <div id="explain-baseline-loading" class="loading-row hidden">
+        <div class="spinner"></div>
+        <span>Generating the baseline interpretation with OpenCode (one time only)...</span>
+      </div>
+
+      <div id="explain-output-baseline" class="panel explain-output hidden">
+        <div class="explain-header">
+          <strong>OpenCode Analysis — Baseline</strong>
+          <span class="model-tag">mimo-v2.6-flash-free</span>
+        </div>
+        <div class="explain-text" id="explain-text-baseline"></div>
+      </div>
+
+      <div id="explain-baseline-error" class="alert alert-error hidden"></div>
+
+      <!-- Experiment: live OpenCode call -->
+      <div class="panel explain-panel">
+        <strong>Latest Experiment Run (browser evaluation)</strong>
+        <p>Live OpenCode analysis of the latest run under <span class="mono">results/experiments/</span>. Each click runs OpenCode fresh on that run's summary. Run an experiment evaluation first.</p>
+        <p class="note-text">Experiment interpretations are ephemeral — they are shown to you and never stored.</p>
+        <button id="btn-explain-experiment" class="btn btn-primary" onclick="runExperimentExplanation()">Explain Experiment Results</button>
       </div>
 
       <div id="explain-loading" class="loading-row hidden">
         <div class="spinner"></div>
-        <span>OpenCode is analysing results...</span>
+        <span>OpenCode is analysing your experiment results...</span>
       </div>
 
       <div id="explain-output" class="panel explain-output hidden">
         <div class="explain-header">
-          <strong>OpenCode Analysis</strong>
+          <strong>OpenCode Analysis — Experiment</strong>
           <span class="model-tag">mimo-v2.6-flash-free</span>
         </div>
         <div class="explain-text" id="explain-text"></div>

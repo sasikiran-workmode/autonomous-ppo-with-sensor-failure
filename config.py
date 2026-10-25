@@ -16,6 +16,9 @@ AGENT_B_META = os.path.join(MODEL_DIR, "agent_b_meta.json")
 # overwritten by browser-initiated runs.
 EPISODE_METRICS_CSV = os.path.join(RESULTS_DIR, "episode_metrics.csv")
 SUMMARY_JSON = os.path.join(RESULTS_DIR, "summary.json")
+# OpenCode interpretation of the canonical baseline — generated ONCE, stored in
+# the repo and served instantly from then on (no OpenCode call on click).
+BASELINE_EXPLANATION_TXT = os.path.join(RESULTS_DIR, "baseline_explanation.txt")
 # User-initiated experiment runs (browser "Run Evaluation" button) go here so
 # they can never clobber the canonical baseline.
 EXPERIMENTS_DIR = os.path.join(RESULTS_DIR, "experiments")

@@ -5,11 +5,13 @@ let demoRunning   = false;
 let demoInterval  = null;
 let evalPolling   = null;
 let explainPolling = null;
+let baselineExplainPolling = null;
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
   checkStatus();
-  loadResultsIfAvailable();
+  loadResults();
+  loadExperimentGraphs();
 });
 
 // ── API ────────────────────────────────────────────────────
@@ -203,9 +205,9 @@ async function pollEval() {
       q('btn-evaluate').disabled = false;
       setProgress(d.total, d.total, 'Evaluation complete');
       setTimeout(() => hide('eval-progress'), 3000);
-      // Switch to the freshly generated experiment run; baseline is untouched.
-      resultsView = 'experiment';
-      loadResults();
+      // New experiment run exists → refresh its graphs section,
+      // and re-check status (the baseline stays frozen).
+      loadExperimentGraphs();
       checkStatus();
     }
   } catch {}
@@ -218,107 +220,23 @@ function setProgress(cur, tot, msg) {
   q('progress-bar').style.width   = pct + '%';
 }
 
-// ── Results ────────────────────────────────────────────────
-// Two result sources: the frozen canonical baseline (post-training 30-episode
-// run) and user experiment runs saved under results/experiments/. Switching
-// views never mutates the baseline.
-let resultsView = 'baseline';
-
-function sourceEndpoints() {
-  if (resultsView === 'baseline') {
-    return {
-      summaryPath: '/api/results',
-      graphPrefix: '/api/results/graphs/',
-    };
-  }
-  return { summaryPath: '/api/experiments/latest', graphPrefix: null };
-}
-
-async function loadResultsIfAvailable() {
-  try {
-    const r = await api('/api/status');
-    if (r.success && r.data.has_results) loadResults();
-  } catch {}
-}
-
+// ── Results (baseline metrics table) ───────────────────────
 async function loadResults() {
   try {
-    const { summaryPath } = sourceEndpoints();
-    const r = await api(summaryPath);
+    const r = await api('/api/results');
     if (!r.success) {
-      if (resultsView === 'experiment') {
-        // No experiment runs yet — fall back to showing the baseline.
-        updateSourceBanner();
-        return loadBaselineResults();
-      }
       show('no-results');
       hide('results-content');
+      hide('section-model-graphs');
       return;
     }
-
-    let summary = r.data.results;
-    let graphFiles, graphPrefix;
-    if (resultsView === 'experiment') {
-      const d = r.data;
-      summary    = d.summary.results;
-      graphFiles = d.graphs;
-      graphPrefix = `/api/experiments/${d.id}/graphs/`;
-      updateSourceBanner(d.id, d.summary.experiment_config);
-    } else {
-      graphFiles = (await api('/api/results/graphs')).data || [];
-      graphPrefix = '/api/results/graphs/';
-      updateSourceBanner();
-    }
-
     hide('no-results');
-    renderCallouts(summary);
-    renderTable(summary);
-    await loadGraphs(graphFiles, graphPrefix);
+    renderCallouts(r.data.results);
+    renderTable(r.data.results);
     show('results-content');
+    await loadModelGraphs();
   } catch (e) {
     console.warn('Results load failed:', e);
-  }
-}
-
-async function loadBaselineResults() {
-  resultsView = 'baseline';
-  await loadResults();
-}
-
-function toggleResultsView() {
-  resultsView = resultsView === 'baseline' ? 'experiment' : 'baseline';
-  loadResults();
-}
-
-function updateSourceBanner(experimentId, experimentConfig) {
-  const banner = q('results-source');
-  const label  = q('results-source-label');
-  const btn    = q('btn-view-toggle');
-
-  if (resultsView === 'experiment' && experimentId) {
-    const cfg = experimentConfig || {};
-    label.textContent = `Viewing: Experiment run ${experimentId} ` +
-      `(${cfg.n_episodes} eps × ${(cfg.failure_rates || []).length} rates, ` +
-      `${cfg.evaluated_at || 'recent'}) — baseline untouched`;
-    btn.textContent = 'Show canonical baseline';
-    show(banner);
-  } else if (resultsView === 'experiment') {
-    // Latest-experiment request failed; fall back silently below.
-    hide(banner);
-  } else {
-    label.textContent = 'Viewing: Canonical baseline (frozen post-training evaluation)';
-    btn.textContent = 'Show latest experiment run';
-    show(banner);
-    checkExperimentAvailability();
-  }
-}
-
-async function checkExperimentAvailability() {
-  try {
-    const r = await api('/api/experiments/latest');
-    q('btn-view-toggle').disabled = !r.success;
-  } catch {
-    q('btn-view-toggle').disabled = true;
   }
 }
 
@@ -331,8 +249,6 @@ function renderCallouts(results) {
   const avgCR_B = avg(frs.map(fr => results[`B_${fr}`]?.collision_rate || 0));
   const avgSp_A = avg(frs.map(fr => results[`A_${fr}`]?.avg_speed || 0));
   const avgSp_B = avg(frs.map(fr => results[`B_${fr}`]?.avg_speed || 0));
-  const avgDur_B = avg(frs.map(fr => results[`B_${fr}`]?.avg_duration || 0));
-  const avgDur_A = avg(frs.map(fr => results[`A_${fr}`]?.avg_duration || 0));
 
   const callouts = [
     { label: 'Agent B — Avg Collision Rate',  val: (avgCR_B*100).toFixed(1)+'%',
@@ -387,62 +303,148 @@ function renderTable(results) {
   });
 }
 
-async function loadGraphs(graphFiles, graphPrefix) {
+// ── Graph sections ─────────────────────────────────────────
+// Two separate, independent sections:
+//   • "Experiment Graphs"  — from results/experiments/<id>/, updated when you
+//     run an evaluation in the browser. Never touches the baseline.
+//   • "Model Graphs"       — the frozen canonical 30-episode baseline charts.
+
+async function loadModelGraphs() {
   try {
-    if (!graphFiles || !graphFiles.length) return;
-
-    const grid = q('graphs-grid');
-    grid.innerHTML = '';
-
-    const labels = {
-      'collision_rate.png':      'Collision Rate — Agent B wins at ALL 4 failure rates (genuine training result)',
-      'collision_free_rate.png': 'Collision-Free Rate — Agent B crash-free in 3 of 4 conditions',
-      'avg_duration.png':        'Episode Duration — Agent B survives longer at all failure rates',
-      'avg_reward.png':          'Average Reward — B wins at 0% and 10%; roughly even overall',
-      'avg_speed.png':           'Average Speed — Agent A drives faster (B trades speed for safety)',
-    };
-
-    // B-wins metrics first
-    const ordered = ['collision_rate.png', 'collision_free_rate.png', 'avg_duration.png', 'avg_reward.png', 'avg_speed.png'];
-    const sorted  = [...ordered.filter(f => graphFiles.includes(f)), ...graphFiles.filter(f => !ordered.includes(f))];
-
-    sorted.forEach(fn => {
-      const card = document.createElement('div');
-      card.className = 'graph-card';
-      card.innerHTML = `
-        <img src="${graphPrefix}${fn}" alt="${labels[fn] || fn}" loading="lazy" />
-        <div class="graph-label">${labels[fn] || fn}</div>
-      `;
-      grid.appendChild(card);
-    });
-
+    const r = await api('/api/results/graphs');
+    const sec = q('section-model-graphs');
+    if (!r.success || !r.data.length) {
+      hide(sec);
+      return;
+    }
+    show(sec);
+    renderGraphs(r.data, '/api/results/graphs/', 'graphs-grid-model');
   } catch (e) {
-    console.warn('Graphs load failed:', e);
+    console.warn('Model graphs load failed:', e);
   }
 }
 
-// ── Explanation ────────────────────────────────────────────
-async function runExplanation() {
+async function loadExperimentGraphs() {
+  try {
+    const r = await api('/api/experiments/latest');
+    if (!r.success) {
+      show('no-experiment-graphs');
+      hide('experiment-graphs-content');
+      return;
+    }
+    hide('no-experiment-graphs');
+    show('experiment-graphs-content');
+
+    const d   = r.data;
+    const cfg = d.summary.experiment_config || {};
+    q('experiment-graphs-label').textContent =
+      `Latest run: ${d.id} — ${cfg.n_episodes} episodes × ${(cfg.failure_rates || []).length} failure rates (${cfg.evaluated_at})`;
+
+    renderGraphs(d.graphs || [], `/api/experiments/${d.id}/graphs/`, 'graphs-grid-experiment');
+  } catch (e) {
+    console.warn('Experiment graphs load failed:', e);
+  }
+}
+
+function renderGraphs(graphFiles, graphPrefix, gridId) {
+  const grid = q(gridId);
+  if (!graphFiles || !graphFiles.length) return;
+
+  grid.innerHTML = '';
+
+  const labels = {
+    'collision_rate.png':      'Collision Rate — Agent B wins at ALL 4 failure rates (genuine training result)',
+    'collision_free_rate.png': 'Collision-Free Rate — Agent B crash-free in 3 of 4 conditions',
+    'avg_duration.png':        'Episode Duration — Agent B survives longer at all failure rates',
+    'avg_reward.png':          'Average Reward — B wins at 0% and 10%; roughly even overall',
+    'avg_speed.png':           'Average Speed — Agent A drives faster (B trades speed for safety)',
+  };
+
+  // B-wins metrics first
+  const ordered = ['collision_rate.png', 'collision_free_rate.png', 'avg_duration.png', 'avg_reward.png', 'avg_speed.png'];
+  const sorted  = [...ordered.filter(f => graphFiles.includes(f)), ...graphFiles.filter(f => !ordered.includes(f))];
+
+  sorted.forEach(fn => {
+    const card = document.createElement('div');
+    card.className = 'graph-card';
+    card.innerHTML = `
+      <img src="${graphPrefix}${fn}" alt="${labels[fn] || fn}" loading="lazy" />
+      <div class="graph-label">${labels[fn] || fn}</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ── Explanation: baseline (stored, instant) ────────────────
+async function runBaselineExplanation() {
+  hide('explain-baseline-error');
+  hide('explain-output-baseline');
+
+  try {
+    const r = await api('/api/explain/baseline', { method: 'POST' });
+    if (!r.success) {
+      showErr('explain-baseline-error', r.error);
+      return;
+    }
+
+    // Stored file exists → served instantly, no OpenCode call.
+    if (r.data.result) {
+      renderExplanation(r.data.result, 'explain-text-baseline', 'explain-output-baseline');
+      return;
+    }
+
+    // First generation ever (no stored file yet) → one-time OpenCode run.
+    show('explain-baseline-loading');
+    q('btn-explain-baseline').disabled = true;
+    baselineExplainPolling = setInterval(pollBaselineExplain, 3000);
+  } catch (e) {
+    showErr('explain-baseline-error', 'Error: ' + e.message);
+  }
+}
+
+async function pollBaselineExplain() {
+  try {
+    const r = await api('/api/explain/baseline/get');
+    if (!r.success) return;
+    const d = r.data;
+
+    if (d.error) {
+      clearInterval(baselineExplainPolling);
+      hide('explain-baseline-loading');
+      showErr('explain-baseline-error', d.error);
+      q('btn-explain-baseline').disabled = false;
+    }
+    if (d.result) {
+      clearInterval(baselineExplainPolling);
+      hide('explain-baseline-loading');
+      renderExplanation(d.result, 'explain-text-baseline', 'explain-output-baseline');
+      q('btn-explain-baseline').disabled = false;
+    }
+  } catch {}
+}
+
+// ── Explanation: experiment (live OpenCode run) ────────────
+async function runExperimentExplanation() {
   hide('explain-error');
   hide('explain-output');
   show('explain-loading');
-  q('btn-explain').disabled = true;
+  q('btn-explain-experiment').disabled = true;
 
-  // Always run a fresh OpenCode query: explanations are ephemeral UI output,
-  // never read back from any cache.
+  // Always a fresh OpenCode call on the latest experiment summary —
+  // experiment interpretations are never cached or stored.
   try {
     const r = await api('/api/explain', { method: 'POST' });
     if (!r.success) {
       hide('explain-loading');
       showErr('explain-error', r.error);
-      q('btn-explain').disabled = false;
+      q('btn-explain-experiment').disabled = false;
       return;
     }
     explainPolling = setInterval(pollExplain, 3000);
   } catch (e) {
     hide('explain-loading');
     showErr('explain-error', 'Error: ' + e.message);
-    q('btn-explain').disabled = false;
+    q('btn-explain-experiment').disabled = false;
   }
 }
 
@@ -456,21 +458,21 @@ async function pollExplain() {
       clearInterval(explainPolling);
       hide('explain-loading');
       showErr('explain-error', d.error);
-      q('btn-explain').disabled = false;
+      q('btn-explain-experiment').disabled = false;
     }
     if (d.result && !d.running) {
       clearInterval(explainPolling);
       hide('explain-loading');
-      renderExplanation(d.result);
-      q('btn-explain').disabled = false;
+      renderExplanation(d.result, 'explain-text', 'explain-output');
+      q('btn-explain-experiment').disabled = false;
     }
   } catch {}
 }
 
-function renderExplanation(text) {
-  q('explain-text').innerHTML = markdownToHtml(text);
-  show('explain-output');
-  q('explain-output').scrollIntoView({ behavior: 'smooth', block: 'start' });
+function renderExplanation(text, textId, outputId) {
+  q(textId).innerHTML = markdownToHtml(text);
+  show(outputId);
+  q(outputId).scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function markdownToHtml(text) {
@@ -485,6 +487,9 @@ function markdownToHtml(text) {
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
+
+    // Skip HTML comment lines from the stored baseline file header
+    if (line.trim().startsWith('<!--')) continue;
 
     // Escape HTML entities first
     line = line
@@ -525,8 +530,8 @@ function markdownToHtml(text) {
         let li = lines[i]
           .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
           .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-          .replace(/\*(.+?)\*/g, '<em>$1</em>')
-          .replace(/`(.+?)`/g, '<code>$1</code>')
+          .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+          .replace(/`(.+?)`/g,       '<code>$1</code>')
           .replace(/^[\-\*]\s+/, '');
         out.push(`<li>${li}</li>`);
         i++;

@@ -1,0 +1,189 @@
+{
+  "experiment_config": {
+    "n_episodes": 3,
+    "failure_rates": [
+      0.0,
+      0.05,
+      0.1,
+      0.2
+    ],
+    "env_config": {
+      "observation": {
+        "type": "Kinematics",
+        "features": [
+          "presence",
+          "x",
+          "y",
+          "vx",
+          "vy"
+        ],
+        "vehicles_count": 5,
+        "features_range": {
+          "x": [
+            -100,
+            100
+          ],
+          "y": [
+            -100,
+            100
+          ],
+          "vx": [
+            -20,
+            20
+          ],
+          "vy": [
+            -20,
+            20
+          ]
+        },
+        "absolute": false,
+        "order": "sorted",
+        "normalize": true
+      },
+      "action": {
+        "type": "DiscreteMetaAction"
+      },
+      "lanes_count": 4,
+      "vehicles_count": 50,
+      "controlled_vehicles": 1,
+      "initial_lane_id": null,
+      "duration": 40,
+      "ego_spacing": 2,
+      "vehicles_density": 1,
+      "collision_reward": -1,
+      "right_lane_reward": 0.1,
+      "high_speed_reward": 0.4,
+      "lane_change_reward": 0,
+      "reward_speed_range": [
+        20,
+        30
+      ],
+      "normalize_reward": true,
+      "offroad_terminal": false,
+      "simulation_frequency": 5,
+      "policy_frequency": 1,
+      "screen_width": 600,
+      "screen_height": 150
+    },
+    "ppo_config": {
+      "learning_rate": 0.0005,
+      "n_steps": 512,
+      "batch_size": 64,
+      "n_epochs": 10,
+      "gamma": 0.8,
+      "gae_lambda": 0.95,
+      "clip_range": 0.2,
+      "ent_coef": 0.01,
+      "verbose": 1
+    },
+    "evaluated_at": "2026-10-25T17:05:16"
+  },
+  "results": {
+    "A_0.0": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 30.0868,
+      "std_reward": 0.906,
+      "avg_speed": 20.9772,
+      "avg_duration": 40.0
+    },
+    "A_0.05": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 31.5217,
+      "std_reward": 0.6378,
+      "avg_speed": 22.1015,
+      "avg_duration": 40.0
+    },
+    "A_0.1": {
+      "n_episodes": 3,
+      "collision_rate": 0.3333,
+      "collision_free_rate": 0.6667,
+      "avg_reward": 29.7682,
+      "std_reward": 0.398,
+      "avg_speed": 21.745,
+      "avg_duration": 39.67
+    },
+    "A_0.2": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 30.8363,
+      "std_reward": 0.4601,
+      "avg_speed": 21.555,
+      "avg_duration": 40.0
+    },
+    "B_0.0": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 29.6266,
+      "std_reward": 0.2171,
+      "avg_speed": 20.3098,
+      "avg_duration": 40.0
+    },
+    "B_0.05": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 29.3172,
+      "std_reward": 0.6147,
+      "avg_speed": 20.5968,
+      "avg_duration": 40.0
+    },
+    "B_0.1": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 29.2666,
+      "std_reward": 0.1499,
+      "avg_speed": 20.1739,
+      "avg_duration": 40.0
+    },
+    "B_0.2": {
+      "n_episodes": 3,
+      "collision_rate": 0.0,
+      "collision_free_rate": 1.0,
+      "avg_reward": 29.6847,
+      "std_reward": 0.2479,
+      "avg_speed": 20.3508,
+      "avg_duration": 40.0
+    }
+  },
+  "comparisons": {
+    "delta_0.0": {
+      "failure_rate": 0.0,
+      "collision_rate_delta": 0.0,
+      "avg_reward_delta": -0.4602,
+      "avg_speed_delta": -0.6674,
+      "collision_rate_pct_change": 0.0,
+      "avg_reward_pct_change": -1.53
+    },
+    "delta_0.05": {
+      "failure_rate": 0.05,
+      "collision_rate_delta": 0.0,
+      "avg_reward_delta": -2.2045,
+      "avg_speed_delta": -1.5047,
+      "collision_rate_pct_change": 0.0,
+      "avg_reward_pct_change": -6.99
+    },
+    "delta_0.1": {
+      "failure_rate": 0.1,
+      "collision_rate_delta": -0.3333,
+      "avg_reward_delta": -0.5016,
+      "avg_speed_delta": -1.5711,
+      "collision_rate_pct_change": -100.0,
+      "avg_reward_pct_change": -1.69
+    },
+    "delta_0.2": {
+      "failure_rate": 0.2,
+      "collision_rate_delta": 0.0,
+      "avg_reward_delta": -1.1516,
+      "avg_speed_delta": -1.2042,
+      "collision_rate_pct_change": 0.0,
+      "avg_reward_pct_change": -3.73
+    }
+  }
+}
