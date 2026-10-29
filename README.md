@@ -183,43 +183,54 @@ to prioritise not crashing over maximising speed.
 
 ```
 rl-project/
-├── start-ppo.sh          # Full setup run: venv + deps + train/eval (only steps not already done) + launch. Use SKIP_TRAIN=1 SKIP_EVAL=1 to just start the dashboard
-├── final-ppo.sh          # Instant dashboard launcher (skip training + evaluation)
-├── config.py             # All constants: ENV_CONFIG, ENV_CONFIG_B, PPO_CONFIG, PPO_CONFIG_B
-├── environment.py        # Environment factories (create_env, create_training_env_b, etc.)
-├── sensor_dropout.py     # SensorDropoutWrapper + curriculum schedule helper
-├── train.py              # Training: train_agent_a(), train_agent_b() (4-phase curriculum)
-├── evaluate.py           # 8-condition evaluation + graph generation
-├── metrics.py            # Pure-Python metric calculations
-├── live_simulation.py    # Concurrent simulation manager for live demo
-├── explain_results.py    # OpenCode CLI integration (mimo-v2.6-flash-free)
-├── app.py                # Flask backend (all API routes)
-├── howtorun.md           # Step-by-step manual run instructions
-├── improve-agentb.md     # Design notes: why Agent B initially lost, and the fix
-├── todo.md               # Implementation-status record
-├── training-logs.txt     # Verbose PPO training output
-├── claude logs.txt       # Development session log
-├── agentA vs AgentB.jpg  # Comparison screenshot (Agent A vs Agent B)
+│
+├── start-ppo.sh              # Full setup run: venv + deps + train/eval (only steps not already done) + launch. Try SKIP_TRAIN=1 SKIP_EVAL=1 to just start the dashboard
+├── final-ppo.sh              # Instant dashboard launcher (skip training + evaluation)
+├── config.py                 # All constants: ENV_CONFIG, ENV_CONFIG_B, PPO_CONFIG, PPO_CONFIG_B
+├── environment.py            # Environment factories (create_env, create_training_env_b, etc.)
+├── sensor_dropout.py         # SensorDropoutWrapper + curriculum schedule helper
+├── train.py                  # Training: train_agent_a(), train_agent_b() (4-phase curriculum)
+├── evaluate.py               # 8-condition evaluation + graph generation
+├── metrics.py                # Pure-Python metric calculations
+├── live_simulation.py        # Concurrent simulation manager for live demo
+├── explain_results.py        # OpenCode CLI integration (mimo-v2.6-flash-free)
+├── app.py                    # Flask backend (all API routes)
+│
+├── howtorun.md               # Step-by-step manual run instructions
+├── improve-agentb.md         # Design notes: why Agent B initially lost, and the fix
+├── todo.md                   # Implementation-status record
+├── training-logs.txt         # Verbose PPO training output
+├── claude logs.txt           # Development session log
+├── agentA vs AgentB.jpg      # Comparison screenshot (Agent A vs Agent B)
 ├── proof not overfitting.jpg # Overfitting-check screenshot (see Q1)
+│
 ├── templates/
-│   └── index.html        # Dashboard UI (white theme, no dark mode)
+│   └── index.html            # Dashboard UI (white theme, no dark mode)
+│
 ├── static/
-│   ├── style.css         # Clean white/blue/purple CSS
-│   └── app.js            # Frontend JavaScript
+│   ├── style.css             # Clean white/blue/purple CSS
+│   └── app.js                # Frontend JavaScript
+│
 ├── models/
-│   ├── agent_a_ppo.zip   # Trained Agent A model
-│   ├── agent_b_ppo.zip   # Trained Agent B model (curriculum)
-│   ├── agent_a_meta.json # Training metadata
-│   ├── agent_b_meta.json # Training metadata (includes curriculum schedule)
-│   └── checkpoints/      # Per-phase Agent B checkpoints (phase1–4)
+│   ├── agent_a_ppo.zip       # Trained Agent A model
+│   ├── agent_b_ppo.zip       # Trained Agent B model (curriculum)
+│   ├── agent_a_meta.json     # Training metadata
+│   ├── agent_b_meta.json     # Training metadata (includes curriculum schedule)
+│   └── checkpoints/
+│       ├── agent_b_phase1.zip
+│       ├── agent_b_phase2.zip
+│       ├── agent_b_phase3.zip
+│       └── agent_b_phase4.zip
+│
 ├── results/
-│   ├── episode_metrics.csv   # 240 rows of raw episode data
-│   ├── summary.json          # Canonical baseline metrics (written once, frozen)
+│   ├── episode_metrics.csv       # 240 rows of raw episode data
+│   ├── summary.json              # Canonical baseline metrics (written once, frozen)
 │   ├── baseline_explanation.txt  # Stored OpenCode baseline interpretation
-│   ├── experiments/          # Per-run experiment outputs (browser "Run Evaluation")
-│   └── graphs/               # 5 PNG comparison charts (baseline, frozen)
+│   ├── experiments/              # Per-run experiment outputs (browser "Run Evaluation")
+│   └── graphs/                   # 5 PNG comparison charts (baseline, frozen)
+│
 ├── requirements.txt
-├── .gitignore            # Excludes .venv/, __pycache__/, etc.
+├── .gitignore                # Excludes .venv/, __pycache__/, etc.
 └── README.md
 ```
 
