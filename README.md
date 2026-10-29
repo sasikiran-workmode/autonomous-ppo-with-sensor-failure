@@ -4,7 +4,7 @@
 > collision-safe driving policy when observations of nearby vehicles are incomplete?
 >
 > **Short answer:** Yes. Agent B (curriculum-trained with safety rewards + sensor dropout)
-> achieves 0–3.3% collision rate vs Agent A's 6.7–16.7% across all 4 failure rates.
+> achieves 0–3.3% collision rate vs Agent A's 10.0–16.7% across all 4 failure rates.
 
 A complete, locally-running research project using:
 
@@ -169,7 +169,7 @@ Results from 30 episodes × 8 conditions (240 total):
 | 0% failure | 16.7% | **3.3%** | B |
 | 5% failure | 13.3% | **0.0%** | B |
 | 10% failure | 13.3% | **0.0%** | B |
-| 20% failure | 6.7% | **0.0%** | B |
+| 20% failure | 10.0% | **0.0%** | B |
 
 **Agent B wins on collision rate at all 4 failure rates** — a genuine result from the curriculum
 training and safety-oriented reward shaping. No values were adjusted.
@@ -183,7 +183,8 @@ to prioritise not crashing over maximising speed.
 
 ```
 rl-project/
-├── start-ppo.sh          # One-shot launcher (run this!)
+├── start-ppo.sh          # Full setup run: venv + deps + train/eval (only steps not already done) + launch. Use SKIP_TRAIN=1 SKIP_EVAL=1 to just start the dashboard
+├── final-ppo.sh          # Instant dashboard launcher (skip training + evaluation)
 ├── config.py             # All constants: ENV_CONFIG, ENV_CONFIG_B, PPO_CONFIG, PPO_CONFIG_B
 ├── environment.py        # Environment factories (create_env, create_training_env_b, etc.)
 ├── sensor_dropout.py     # SensorDropoutWrapper + curriculum schedule helper
@@ -193,6 +194,13 @@ rl-project/
 ├── live_simulation.py    # Concurrent simulation manager for live demo
 ├── explain_results.py    # OpenCode CLI integration (mimo-v2.6-flash-free)
 ├── app.py                # Flask backend (all API routes)
+├── howtorun.md           # Step-by-step manual run instructions
+├── improve-agentb.md     # Design notes: why Agent B initially lost, and the fix
+├── todo.md               # Implementation-status record
+├── training-logs.txt     # Verbose PPO training output
+├── claude logs.txt       # Development session log
+├── agentA vs AgentB.jpg  # Comparison screenshot (Agent A vs Agent B)
+├── proof not overfitting.jpg # Overfitting-check screenshot (see Q1)
 ├── templates/
 │   └── index.html        # Dashboard UI (white theme, no dark mode)
 ├── static/
@@ -211,6 +219,7 @@ rl-project/
 │   ├── experiments/          # Per-run experiment outputs (browser "Run Evaluation")
 │   └── graphs/               # 5 PNG comparison charts (baseline, frozen)
 ├── requirements.txt
+├── .gitignore            # Excludes .venv/, __pycache__/, etc.
 └── README.md
 ```
 
@@ -413,25 +422,25 @@ Checked: episode length distribution, reward variance, and speed variance across
 
 **Honest verdict: Not classic overfitting — but something close.**
 
-Agent B has almost zero variance across 120 episodes:
+Agent B's variance across 120 episodes is dramatically lower than Agent A's:
 
 | | Agent A | Agent B |
 |--|---------|---------|
-| Episode steps std | 4.0 | **0.0** |
-| Reward std | 3.89 | **0.31** |
-| Speed std | 0.60 | 0.69 |
-| Min steps | 32 | **40 (always)** |
-| Hit max steps | 3 out of 4 failure rates | **all 4** |
+| Episode steps std | 7.32 | **0.82** |
+| Reward std | 5.93 | **1.05** |
+| Speed std | 1.12 | **0.30** |
+| Min steps | 10 (one collision-terminated episode) | **31 (the one collision)** |
+| Hit max steps | 104/120 — hits the limit in all 4 conditions | **119/120 — in all 4 conditions** |
 
 Agent B didn't overfit to specific traffic patterns. The evaluation uses 30 different random seeds per condition, so if it were cheating on memorised scenarios, reward std would be much higher (some seeds it knows, some it doesn't).
 
-**What actually happened is different — it learned a near-deterministic conservative policy.** It drives at almost exactly 20.3 m/s (barely in the `reward_speed_range` of [20,30]) and takes the same cautious actions every episode regardless of what traffic does. The reward range of `[29.22, 29.91]` — a spread of only 0.69 — across 120 wildly different traffic episodes is extremely narrow.
+**What actually happened is different — it learned a near-deterministic conservative policy.** It drives at almost exactly 20.3 m/s (barely in the `reward_speed_range` of [20,30]) and takes the same cautious actions every episode regardless of what traffic does. Its cumulative rewards span 22.02–30.53 (a spread of 8.51) across 120 wildly different traffic episodes — far narrower than Agent A's 26.64 spread.
 
 In plain terms: Agent B didn't learn "handle sensor failures intelligently" — it learned "drive slow and straight in the safest possible way to never trigger `collision_reward = -5`." That's a rational response to the reward it was given.
 
 - **The 0% collision rate is real and not cheating** — it generalises across 30 random seeds
 - **But the policy is conservative/rigid, not truly robust** — it survives by being cautious, not by adapting intelligently to which sensor is missing
-- **Agent A's std of 3.89 reward shows it's genuinely reacting to varied traffic** — sometimes it does great, sometimes it crashes
+- **Agent A's reward std of 5.93 shows it's genuinely reacting to varied traffic** — sometimes it does great, sometimes it crashes
 
 This is called **reward hacking** — the agent found the easiest way to maximise reward (don't crash ever by going slow) rather than the intended behaviour (drive well even with sensor noise).
 
@@ -471,9 +480,9 @@ With 30 episodes per condition and binary collision outcomes (yes/no), the 95% c
 | Agent B @ 0% failure | 3.3% (1/30) | ~0.1% – 17.2% |
 | Agent B @ 5–20% failure | 0.0% (0/30) | ~0.0% – 11.6% |
 
-The direction is consistent — Agent B wins at all 4 failure rates — but the confidence intervals for Agent A's lower failure rates (6.7% at 20%) overlap with Agent B's upper bounds. A proper study would need ~200+ episodes per condition for narrow confidence intervals.
+The direction is consistent — Agent B wins at all 4 failure rates — but the confidence intervals for Agent A's lower failure rates (10.0% at 20%) overlap with Agent B's upper bounds. A proper study would need ~200+ episodes per condition for narrow confidence intervals.
 
-**What we can say with confidence:** Agent B's 0-collision performance across 90 episodes (3 failure-rate conditions × 30 episodes) with zero crashes is a strong signal. The probability of seeing 0 collisions in 90 episodes by chance if the true rate were 10% (Agent A's average) is less than 0.003%.
+**What we can say with confidence:** Agent B's 0-collision performance across 90 episodes (3 failure-rate conditions × 30 episodes) with zero crashes is a strong signal. The probability of seeing 0 collisions in 90 episodes by chance if the true rate were 10% (Agent A's lowest observed rate) is roughly 0.008% (0.9^90).
 
 **What we cannot say:** Whether the 3.3% vs 16.7% gap at 0% failure is statistically significant at conventional thresholds (it is not, given these sample sizes).
 
@@ -512,7 +521,7 @@ The practical implication: Agent B is optimised for degraded sensor conditions. 
 
 ### Q6: Could the results be explained by Agent B just driving slower and never finishing — artificially avoiding collisions by barely moving?
 
-Checked: Agent B drives at an average of ~20.3 m/s, which is within the `reward_speed_range` of [20, 30] m/s and well above a "stationary" policy. All 120 Agent B episodes ran for the full 40 steps (the episode duration limit), meaning the agent successfully completed every episode rather than stopping or stalling.
+Checked: Agent B drives at an average of ~20.3 m/s, which is within the `reward_speed_range` of [20, 30] m/s and well above a "stationary" policy. 119 of 120 Agent B episodes ran the full 40 steps (the episode duration limit) — the only exception is Agent B's single collision episode, which ended after 31 steps. In other words, every Agent B episode that did not end in a collision ran to completion rather than stopping or stalling.
 
 For comparison, Agent A averages ~22 m/s. Agent B is slower by ~2 m/s — a real difference, but both agents are actively driving at highway speeds.
 
@@ -544,7 +553,7 @@ Checked: `evaluate.py` calls `model.predict(obs, deterministic=True)` for all 24
 
 **Why deterministic evaluation is standard practice:** PPO learns a stochastic policy during training (sampling from a categorical distribution over 5 discrete actions). At evaluation time, `deterministic=True` collapses this to the argmax action, which is the conventional approach in RL evaluation. It removes evaluation variance caused by random action sampling, making results more reproducible and directly comparable.
 
-**Would stochastic evaluation change the results?** Potentially, yes. Stochastic evaluation would add noise to both agents' performance. Agent A, which has higher reward variance even under deterministic evaluation (std = 3.89), would likely show even more variance stochastically. Agent B, whose policy is near-deterministic even in the learned distribution (reward std = 0.31), would be largely unchanged — if the policy distribution is already peaked on one action, sampling from it vs taking the argmax produces near-identical behaviour.
+**Would stochastic evaluation change the results?** Potentially, yes. Stochastic evaluation would add noise to both agents' performance. Agent A, which has higher reward variance even under deterministic evaluation (std = 5.93), would likely show even more variance stochastically. Agent B, whose policy is much more predictable even in the learned distribution (reward std = 1.05), would be largely unchanged — if the policy distribution is already peaked on one action, sampling from it vs taking the argmax produces near-identical behaviour.
 
 **The honest caveat:** By using deterministic evaluation, we are measuring the best-case performance of each agent's policy. Stochastic deployment (which is how PPO would actually operate in a real system) could degrade Agent A's numbers more than Agent B's, widening the gap — or could occasionally produce luckier outcomes. The direction of results is unlikely to reverse, but the exact collision rates under stochastic deployment are not measured here.
 
@@ -584,13 +593,13 @@ The evaluation seeds are deterministic and fixed, which is what allows anyone to
 
 ### Q11: The training README says Agent B used 200k timesteps in the quick-start table but 500k in `config.py`. Which number is real, and does the discrepancy affect the conclusions?
 
-Good catch. There is an inconsistency in the documentation that deserves a straight answer.
+Good question. The 500k default in `config.py` is real — but it is not what produced the baseline models.
 
 **What the code actually does:**
 - `config.py` sets `DEFAULT_TRAINING_TIMESTEPS = 200_000` (for Agent A) and `AGENT_B_TIMESTEPS = 500_000` (for Agent B).
 - The `train.py` CLI defaults to `200k` when `--agent A` is used and `500k` when `--agent B` is used.
 - The curriculum schedule in `config.py` divides total timesteps into 4 equal phases. At 200k total, each phase is 50k steps. At 500k total, each phase is 125k steps.
 
-**What was actually used to produce the reported results:** The models in `models/agent_a_ppo.zip` and `models/agent_b_ppo.zip` were trained with the defaults from `train.py` — 200k for Agent A and 500k for Agent B. The README table showing "200k timesteps" for both agents is inaccurate for Agent B.
+**What was actually used to produce the reported results:** Both models were trained with **200k timesteps** — the explicit `--timesteps 200000` commands documented in this README, which is exactly what `start-ppo.sh` runs. This is recorded in `models/agent_a_meta.json` and `models/agent_b_meta.json` (`"timesteps": 200000`) and confirmed by the checkpoints themselves (`num_timesteps` of 200,704 and 204,800 — PPO completes the rollout in progress, so the counts slightly overshoot 200k). So the "200k timesteps" shown for both agents in this README is accurate, and there is no timestep-count discrepancy in the reported results.
 
-**Does this affect the conclusions?** The collision rate comparison is between the two trained models as they exist on disk. Those models are real and their evaluation results are real regardless of the exact timestep count. The discrepancy does mean Agent B had more than twice the training compute of Agent A, which is another confound (alongside the reward difference) in the comparison. A strictly fair compute-controlled comparison would train both agents for the same number of timesteps — this was not done here, and is worth noting as a limitation alongside the reward function difference from Q2.
+**Does this affect the conclusions?** No compute confound: both agents were trained on the same ~200k timesteps, so the only training-side differences between them are the reward function, curriculum, and dropout discussed in Q2. One practical note: running `train.py --agent B` without an explicit `--timesteps` flag would use the 500k default from `config.py`, which trains longer than the baseline and would produce a different Agent B than the one on disk.
